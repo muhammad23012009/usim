@@ -20,6 +20,7 @@
 #include <format>
 #include <future>
 #include <QMutex>
+#include <QThread>
 
 #include <gbinder.h>
 #include "gbinderapdu.hpp"
@@ -27,6 +28,9 @@
 
 constexpr const char* HIDL_SERVICE_DEVICE = "/dev/hwbinder";
 constexpr const char* HIDL_SERVICE_IFACE = "android.hardware.radio@1.0::IRadio";
+constexpr const char* HIDL_SERVICE_IFACE_CALLBACK = "android.hardware.radio@1.0::IRadioResponse";
+constexpr const char* HIDL_SERVICE_IFACE_INDICATIONS = "android.hardware.radio@1.0::IRadioIndication";
+
 static const GBinderWriterField sim_apdu_f[] = {GBINDER_WRITER_FIELD_HIDL_STRING(struct sim_apdu, data),
                                                 GBINDER_WRITER_FIELD_END()};
 
@@ -58,7 +62,6 @@ GBinderLocalReply *GBinderWorker::radioResponseHandler(GBinderLocalObject *obj, 
     if (code == HIDL_SERVICE_ICC_OPEN_LOGICAL_CHANNEL_CALLBACK) {
         std::cout << "Received response for IRadio::iccOpenLogicalChannel1" << std::endl;
         gbinder_reader_read_int32(&reader, &g_channelId);
-        self->m_wait.wakeAll();
     } else if (code == HIDL_SERVICE_ICC_TRANSMIT_APDU_LOGICAL_CHANNEL_CALLBACK) {
         const icc_io_result *icc_io_res = gbinder_reader_read_hidl_struct(&reader, struct icc_io_result);
         g_lastIccIoResult.sw1 = icc_io_res->sw1;
@@ -66,12 +69,32 @@ GBinderLocalReply *GBinderWorker::radioResponseHandler(GBinderLocalObject *obj, 
         g_lastIccIoResult.simResponse.data.str = strndup(icc_io_res->simResponse.data.str, icc_io_res->simResponse.len);
         g_lastIccIoResult.simResponse.len = icc_io_res->simResponse.len;
         g_lastIccIoResult.simResponse.owns_buffer = TRUE;
-        self->m_wait.wakeAll();
     } else if (code == HIDL_SERVICE_ICC_CLOSE_LOGICAL_CHANNEL_CALLBACK) {
         std::cout << "Received response for IRadio::iccCloseLogicalChannel" << std::endl;
-        self->m_wait.wakeAll();
+    } else if (code == HIDL_SERVICE_SET_SIM_POWER_CALLBACK) {
+        std::cout << "Received response for IRadio::setSimPower" << std::endl;
+        // Just return, we'll wake up from the indication
+        return nullptr;
     } else {
         std::cerr << "Received unknown radio response code: " << code << std::endl;
+        return nullptr;
+    }
+
+    std::cout << "Waking up waiting thread" << std::endl;
+    self->m_wait.wakeAll();
+    return nullptr;
+}
+
+GBinderLocalReply *GBinderWorker::radioIndicationHandler(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
+                                                         guint flags, int *status, void *user_data)
+{
+    GBinderWorker *self = static_cast<GBinderWorker *>(user_data);
+    GBinderReader reader;
+    gbinder_remote_request_init_reader(req, &reader);
+
+    if (code == 19) {
+        std::cout << "sim state changed" << std::endl;
+        self->m_wait.wakeAll();
     }
 
     return nullptr;
@@ -104,12 +127,13 @@ void GBinderWorker::onLogicChannelOpen(uint8_t *aid, uint8_t aid_len)
         return;
     }
 
-    auto responseCallback = gbinder_servicemanager_new_local_object(m_sm, HIDL_SERVICE_IFACE, radioResponseHandler, this);
+    auto responseCallback = gbinder_servicemanager_new_local_object(m_sm, HIDL_SERVICE_IFACE_CALLBACK, radioResponseHandler, this);
+    auto indicationCallback = gbinder_servicemanager_new_local_object(m_sm, HIDL_SERVICE_IFACE_INDICATIONS, radioIndicationHandler, this);
     auto request = gbinder_client_new_request(m_client);
     GBinderWriter writer;
     gbinder_local_request_init_writer(request, &writer);
     gbinder_writer_append_local_object(&writer, responseCallback);
-    gbinder_writer_append_local_object(&writer, nullptr);
+    gbinder_writer_append_local_object(&writer, indicationCallback);
     gbinder_client_transact_sync_reply(m_client, HIDL_SERVICE_SET_RESPONSE_FUNCTIONS, request, &status);
     gbinder_local_request_unref(request);
 
@@ -155,8 +179,6 @@ void GBinderWorker::onTransmit(uint8_t* tx, uint32_t tx_len)
     uint8_t tx_hex[4096] = {0};
     euicc_hexutil_bin2hex((char *)tx_hex, 4096, &tx[5], tx_len - 5);
 
-    std::cout << "APDU req: " << tx_hex << std::endl;
-
     sim_apdu apdu = {
         .sessionId = g_channelId,
         .cla = tx[0],
@@ -193,7 +215,68 @@ void GBinderWorker::onCleanup()
         gbinder_local_request_unref(req);
 
         g_channelId = -1;
+    } else {
+        m_wait.wakeAll();
     }
+}
+
+void GBinderWorker::onSimPowerOff()
+{
+    std::string fqname = HIDL_SERVICE_IFACE;
+    fqname += "/slot2";
+    m_sm = gbinder_servicemanager_new(HIDL_SERVICE_DEVICE);
+
+    int status = 0;
+    m_remote = gbinder_remote_object_ref(gbinder_servicemanager_get_service_sync(m_sm, fqname.c_str(), &status));
+    if (!m_remote) {
+        // Handle error
+        gbinder_servicemanager_unref(m_sm);
+        return;
+    }
+
+    m_client = gbinder_client_new(m_remote, HIDL_SERVICE_IFACE);
+    if (!m_client) {
+        // Handle error
+        gbinder_remote_object_unref(m_remote);
+        gbinder_servicemanager_unref(m_sm);
+        return;
+    }
+
+    auto responseCallback = gbinder_servicemanager_new_local_object(m_sm, HIDL_SERVICE_IFACE_CALLBACK, radioResponseHandler, this);
+    auto indicationCallback = gbinder_servicemanager_new_local_object(m_sm, HIDL_SERVICE_IFACE_INDICATIONS, radioIndicationHandler, this);
+    auto request = gbinder_client_new_request(m_client);
+    GBinderWriter writer;
+    gbinder_local_request_init_writer(request, &writer);
+    gbinder_writer_append_local_object(&writer, responseCallback);
+    gbinder_writer_append_local_object(&writer, indicationCallback);
+    gbinder_client_transact_sync_reply(m_client, HIDL_SERVICE_SET_RESPONSE_FUNCTIONS, request, &status);
+    gbinder_local_request_unref(request);
+
+    if (status < 0) {
+        // Handle error
+        gbinder_client_unref(m_client);
+        gbinder_remote_object_unref(m_remote);
+        gbinder_servicemanager_unref(m_sm);
+        return;
+    }
+
+    request = gbinder_client_new_request(m_client);
+    gbinder_local_request_init_writer(request, &writer);
+    gbinder_writer_append_int32(&writer, 1000);
+    gbinder_writer_append_bool(&writer, 0); // 0 for power off
+    gbinder_client_transact_sync_oneway(m_client, HIDL_SERVICE_SET_SIM_POWER, request);
+    gbinder_local_request_unref(request);
+}
+
+void GBinderWorker::onSimPowerOn()
+{
+    auto request = gbinder_client_new_request(m_client);
+    GBinderWriter writer;
+    gbinder_local_request_init_writer(request, &writer);
+    gbinder_writer_append_int32(&writer, 1000);
+    gbinder_writer_append_bool(&writer, 1); // 1 for power on
+    gbinder_client_transact_sync_oneway(m_client, HIDL_SERVICE_SET_SIM_POWER, request);
+    gbinder_local_request_unref(request);
 }
 
 GbinderApduInterface::GbinderApduInterface()
@@ -204,6 +287,9 @@ GbinderApduInterface::GbinderApduInterface()
     QObject::connect(this, &GbinderApduInterface::logicChannelOpen, m_worker, &GBinderWorker::onLogicChannelOpen, Qt::QueuedConnection);
     QObject::connect(this, QOverload<uint8_t*, uint32_t>::of(&GbinderApduInterface::transmit), m_worker, &GBinderWorker::onTransmit, Qt::QueuedConnection);
     QObject::connect(this, &GbinderApduInterface::cleanup, m_worker, &GBinderWorker::onCleanup, Qt::QueuedConnection);
+
+    QObject::connect(this, &GbinderApduInterface::simPowerOff, m_worker, &GBinderWorker::onSimPowerOff, Qt::QueuedConnection);
+    QObject::connect(this, &GbinderApduInterface::simPowerOn, m_worker, &GBinderWorker::onSimPowerOn, Qt::QueuedConnection);
 
     m_worker->moveToThread(m_workerThread);
     m_workerThread->start();
@@ -220,7 +306,13 @@ int GbinderApduInterface::connect(struct euicc_ctx *ctx)
 
 void GbinderApduInterface::disconnect(struct euicc_ctx *ctx)
 {
+    std::cout << "Disconnecting from GbinderApduInterface" << std::endl;
+    m_worker->m_mutex.lock();
+
     emit cleanup();
+
+    m_worker->m_wait.wait(&m_worker->m_mutex);
+    m_worker->m_mutex.unlock();
 }
 
 int GbinderApduInterface::logic_channel_open(struct euicc_ctx *ctx, const uint8_t *aid, uint8_t aid_len)
@@ -241,6 +333,7 @@ int GbinderApduInterface::logic_channel_open(struct euicc_ctx *ctx, const uint8_
 
 void GbinderApduInterface::logic_channel_close(struct euicc_ctx *ctx, uint8_t channel)
 {
+    std::cout << "Closing logic channel: " << (int)channel << std::endl;
     m_worker->m_mutex.lock();
 
     emit cleanup();
@@ -276,4 +369,42 @@ int GbinderApduInterface::transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t
     free((void *)g_lastIccIoResult.simResponse.data.str);
 
     return 0;
+}
+
+void GbinderApduInterface::clean()
+{
+    m_worker->m_mutex.lock();
+
+    emit cleanup();
+
+    m_worker->m_wait.wait(&m_worker->m_mutex);
+    m_worker->m_mutex.unlock();
+}
+
+// This method will only be called after logic_channel_close is called, so we are responsible for creating our own objects
+void GbinderApduInterface::sim_power_off()
+{
+    std::cout << "Sim power off requested" << std::endl;
+
+    m_worker->m_mutex.lock();
+
+    emit simPowerOff();
+
+    m_worker->m_wait.wait(&m_worker->m_mutex);
+    m_worker->m_mutex.unlock();
+}
+
+void GbinderApduInterface::sim_power_on()
+{
+    std::cout << "Sim power on requested" << std::endl;
+
+    m_worker->m_mutex.lock();
+
+    emit simPowerOn();
+
+    m_worker->m_wait.wait(&m_worker->m_mutex);
+    m_worker->m_mutex.unlock();
+
+    // Since we allocated all the service managers and requests, free them
+    clean();
 }

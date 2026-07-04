@@ -32,11 +32,13 @@
 #define HIDL_SERVICE_ICC_OPEN_LOGICAL_CHANNEL (GBINDER_FIRST_CALL_TRANSACTION + 105)
 #define HIDL_SERVICE_ICC_CLOSE_LOGICAL_CHANNEL (GBINDER_FIRST_CALL_TRANSACTION + 106)
 #define HIDL_SERVICE_ICC_TRANSMIT_APDU_LOGICAL_CHANNEL (GBINDER_FIRST_CALL_TRANSACTION + 107)
+#define HIDL_SERVICE_SET_SIM_POWER (GBINDER_FIRST_CALL_TRANSACTION + 128)
 
 // ref: IRadioResponse
 #define HIDL_SERVICE_ICC_OPEN_LOGICAL_CHANNEL_CALLBACK (GBINDER_FIRST_CALL_TRANSACTION + 104)
 #define HIDL_SERVICE_ICC_CLOSE_LOGICAL_CHANNEL_CALLBACK (GBINDER_FIRST_CALL_TRANSACTION + 105)
 #define HIDL_SERVICE_ICC_TRANSMIT_APDU_LOGICAL_CHANNEL_CALLBACK (GBINDER_FIRST_CALL_TRANSACTION + 106)
+#define HIDL_SERVICE_SET_SIM_POWER_CALLBACK (GBINDER_FIRST_CALL_TRANSACTION + 127)
 
 struct icc_io_result {
     int32_t sw1;
@@ -61,6 +63,8 @@ public slots:
     void onLogicChannelOpen(uint8_t *aid, uint8_t aid_len);
     void onTransmit(uint8_t *tx, uint32_t tx_len);
     void onCleanup();
+    void onSimPowerOff();
+    void onSimPowerOn();
 
 public:
     QWaitCondition m_wait;
@@ -73,6 +77,8 @@ public:
 private:
     static GBinderLocalReply *radioResponseHandler(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
                                                    guint flags, int *status, void *user_data);
+    static GBinderLocalReply *radioIndicationHandler(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
+                                                     guint flags, int *status, void *user_data);
 };
 
 class GbinderApduInterface : public QObject
@@ -95,9 +101,16 @@ public:
     void logic_channel_close(struct euicc_ctx *ctx, uint8_t channel);
     int transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t *rx_len, const uint8_t *tx, uint32_t tx_len);
 
+    void clean();
+    void sim_power_off();
+    void sim_power_on();
+
 signals:
     void logicChannelOpen(uint8_t *aid, uint8_t aid_len);
     void transmit(uint8_t *tx, uint32_t tx_len);
+    void simPowerOff();
+    void simPowerOn();
+
     void cleanup();
 
 private:

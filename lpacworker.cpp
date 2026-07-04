@@ -71,8 +71,6 @@ LpacWorker::LpacWorker(QObject *parent):
 
 void LpacWorker::processLpa(const QString& lpaString)
 {
-    EuiccContextGuard guard(&m_ctx, &m_mutex);
-
     qDebug() << "Processing LPA string:" << lpaString;
     if (lpaString.left(4) != "LPA:") {
         qWarning() << "Invalid LPA string format. Expected to start with 'LPA:'.";
@@ -229,6 +227,8 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
              << "Activation Code:" << activationCode
              << "Confirmation Code:" << confirmationCode;
 
+    euicc_init(&m_ctx);
+
     QByteArray serverAddress = smdp.toUtf8();
     QByteArray confirmationCodeBytes = confirmationCode.toUtf8();
     int ret = 0;
@@ -314,6 +314,11 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
     processNotifications();
 
     es8p_metadata_free(&metadata);
+    euicc_fini(&m_ctx);
+
+    // Now power cycle the SIM
+    GbinderApduInterface::instance()->sim_power_off();
+    GbinderApduInterface::instance()->sim_power_on();
 
     return;
 
@@ -322,6 +327,7 @@ err:
     es9p_cancel_session(&m_ctx);
     euicc_http_cleanup(&m_ctx);
     es8p_metadata_free(&metadata);
+    euicc_fini(&m_ctx);
     qWarning() << "Profile installation failed. Session canceled.";
 }
 
