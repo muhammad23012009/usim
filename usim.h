@@ -21,11 +21,15 @@
 #include <QObject>
 #include <QThread>
 #include "lpacworker.h"
+#include "types.h"
 
 class USim : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(QList<eSIMInfo> esims MEMBER m_esims NOTIFY esimsChanged)
+    Q_PROPERTY(USimNamespace::LpacState state MEMBER m_state NOTIFY stateChanged)
+    Q_PROPERTY(bool busy MEMBER m_busy NOTIFY busyChanged)
+    Q_PROPERTY(eSIMInfo installingEsim MEMBER m_installingEsim NOTIFY installingEsimChanged)
 
 public:
     explicit USim(QObject *parent = nullptr);
@@ -41,9 +45,16 @@ signals:
     void disableEsim(const QString& iccid);
     void getInstalledEsims();
     void esimsChanged(QList<eSIMInfo> esims);
+    void stateChanged(USimNamespace::LpacState state);
+    void busyChanged(bool busy);
+    void installingEsimChanged(eSIMInfo installingEsim);
+    void confirmEsimInstall(bool confirmed);
 
 private:
     QList<eSIMInfo> m_esims;
+    USimNamespace::LpacState m_state = USimNamespace::LpacState::IDLE;
+    bool m_busy = false;
+    eSIMInfo m_installingEsim;
 
     QThread* m_lpacThread;
     LpacWorker* m_lpacWorker;

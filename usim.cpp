@@ -48,5 +48,32 @@ USim::USim(QObject *parent):
         emit esimsChanged(m_esims);
     });
 
+    connect(m_lpacWorker, &LpacWorker::stateChanged, this, [this](USimNamespace::LpacState state) {
+        if (state == USimNamespace::LpacState::STARTING) {
+            m_busy = true;
+            emit busyChanged(m_busy);
+        } else if (state == USimNamespace::LpacState::DONE) {
+            m_busy = false;
+            emit busyChanged(m_busy);
+        }
+
+        m_state = state;
+        emit stateChanged(m_state);
+    });
+
+    connect(m_lpacWorker, &LpacWorker::askForUserConfirmation, this, [this](QString simName, QString providerName, QString iccid) {
+        eSIMInfo info;
+        info.name = simName;
+        info.providerName = providerName;
+        info.iccid = iccid;
+        m_installingEsim = info;
+        emit installingEsimChanged(m_installingEsim);
+    });
+
+    connect(this, &USim::confirmEsimInstall, this, [this](bool confirmed) {
+        m_lpacWorker->m_userConfirmed = confirmed;
+        m_lpacWorker->m_userConfirmation.wakeAll();
+    });
+
     m_lpacThread->start();
 }

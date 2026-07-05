@@ -24,7 +24,10 @@
 
 #include <gbinder.h>
 #include "gbinderapdu.hpp"
+
+extern "C" {
 #include <euicc/hexutil.h>
+}
 
 constexpr const char* HIDL_SERVICE_DEVICE = "/dev/hwbinder";
 constexpr const char* HIDL_SERVICE_IFACE = "android.hardware.radio@1.0::IRadio";
@@ -48,6 +51,12 @@ struct radio_response_info {
     int32_t error;
 };
 
+struct sim_refresh_result {
+    int32_t type;
+    int efId;
+    GBinderHidlString aid;
+};
+
 GBinderLocalReply *GBinderWorker::radioResponseHandler(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
                                                           guint flags, int *status, void *user_data)
 {
@@ -59,9 +68,17 @@ GBinderLocalReply *GBinderWorker::radioResponseHandler(GBinderLocalObject *obj, 
     std::cout << "Received radio response. Type: " << resp->type << ", Serial: " << resp->serial << ", Error: " << resp->error << std::endl;
     std::cout << "Transaction code: " << code << ", Flags: " << flags << std::endl;
 
+    if (resp->error != 0) {
+        std::cerr << "Error in radio response. Error code: " << resp->error << std::endl;
+    }
+
     if (code == HIDL_SERVICE_ICC_OPEN_LOGICAL_CHANNEL_CALLBACK) {
         std::cout << "Received response for IRadio::iccOpenLogicalChannel1" << std::endl;
         gbinder_reader_read_int32(&reader, &g_channelId);
+        self->m_openReady = true;
+        if (resp->error != 0)
+            g_channelId = -1;
+
     } else if (code == HIDL_SERVICE_ICC_TRANSMIT_APDU_LOGICAL_CHANNEL_CALLBACK) {
         const icc_io_result *icc_io_res = gbinder_reader_read_hidl_struct(&reader, struct icc_io_result);
         g_lastIccIoResult.sw1 = icc_io_res->sw1;
@@ -69,18 +86,28 @@ GBinderLocalReply *GBinderWorker::radioResponseHandler(GBinderLocalObject *obj, 
         g_lastIccIoResult.simResponse.data.str = strndup(icc_io_res->simResponse.data.str, icc_io_res->simResponse.len);
         g_lastIccIoResult.simResponse.len = icc_io_res->simResponse.len;
         g_lastIccIoResult.simResponse.owns_buffer = TRUE;
+        self->m_transmitResponseReady = true;
     } else if (code == HIDL_SERVICE_ICC_CLOSE_LOGICAL_CHANNEL_CALLBACK) {
         std::cout << "Received response for IRadio::iccCloseLogicalChannel" << std::endl;
     } else if (code == HIDL_SERVICE_SET_SIM_POWER_CALLBACK) {
         std::cout << "Received response for IRadio::setSimPower" << std::endl;
         // Just return, we'll wake up from the indication
         return nullptr;
+
+    } else if (code == HIDL_SERVICE_GET_ICC_CARD_STATUS_CALLBACK) {
+        std::cout << "Received response for IRadio::getIccCardStatus" << std::endl;
+        const card_status* cardStatus = gbinder_reader_read_hidl_struct(&reader, struct card_status);
+        if (cardStatus->cardState == 1) {
+            self->m_cardStatusReady = true;
+        } else {
+            std::cout << "Card state is not present. Card state: " << cardStatus->cardState << std::endl;
+        }
+
     } else {
         std::cerr << "Received unknown radio response code: " << code << std::endl;
         return nullptr;
     }
 
-    std::cout << "Waking up waiting thread" << std::endl;
     self->m_wait.wakeAll();
     return nullptr;
 }
@@ -95,6 +122,21 @@ GBinderLocalReply *GBinderWorker::radioIndicationHandler(GBinderLocalObject *obj
     if (code == 19) {
         std::cout << "sim state changed" << std::endl;
         self->m_wait.wakeAll();
+    }
+
+    // SIM refresh indication
+    if (code == 17) {
+        int indicationType = 0;
+        gbinder_reader_read_int32(&reader, &indicationType);
+        const sim_refresh_result* refreshResult = gbinder_reader_read_hidl_struct(&reader, struct sim_refresh_result);
+        // SIM_INIT == 1 / SIM_RESET == 2
+        if (refreshResult->type == 1 || refreshResult->type == 2) {
+            // Wake up the waiting thread and let it query the card status
+            self->m_refreshReceived = true;
+            std::cout << "SIM refresh indication received. Type: " << refreshResult->type << ", EF ID: " << refreshResult->efId << std::endl;
+            self->m_wait.wakeAll();
+            // We will wake up the wait_for_refresh() function in sim state change signal
+        }
     }
 
     return nullptr;
@@ -279,6 +321,16 @@ void GBinderWorker::onSimPowerOn()
     gbinder_local_request_unref(request);
 }
 
+void GBinderWorker::onGetCardStatus()
+{
+    auto request = gbinder_client_new_request(m_client);
+    GBinderWriter writer;
+    gbinder_local_request_init_writer(request, &writer);
+    gbinder_writer_append_int32(&writer, 1000);
+    gbinder_client_transact_sync_oneway(m_client, HIDL_SERVICE_GET_ICC_CARD_STATUS, request);
+    gbinder_local_request_unref(request);
+}
+
 GbinderApduInterface::GbinderApduInterface()
 {
     m_worker = new GBinderWorker();
@@ -290,6 +342,8 @@ GbinderApduInterface::GbinderApduInterface()
 
     QObject::connect(this, &GbinderApduInterface::simPowerOff, m_worker, &GBinderWorker::onSimPowerOff, Qt::QueuedConnection);
     QObject::connect(this, &GbinderApduInterface::simPowerOn, m_worker, &GBinderWorker::onSimPowerOn, Qt::QueuedConnection);
+
+    QObject::connect(this, &GbinderApduInterface::getCardStatus, m_worker, &GBinderWorker::onGetCardStatus, Qt::QueuedConnection);
 
     m_worker->moveToThread(m_workerThread);
     m_workerThread->start();
@@ -317,15 +371,21 @@ void GbinderApduInterface::disconnect(struct euicc_ctx *ctx)
 
 int GbinderApduInterface::logic_channel_open(struct euicc_ctx *ctx, const uint8_t *aid, uint8_t aid_len)
 {
+    g_channelId = -1;
+
     m_worker->m_mutex.lock();
 
     uint8_t *aid_copy = (uint8_t *)malloc(aid_len);
     memcpy(aid_copy, aid, aid_len);
 
+    m_worker->m_openReady = false;
+
     // Will be freed by the worker
     emit logicChannelOpen(aid_copy, aid_len);
 
-    m_worker->m_wait.wait(&m_worker->m_mutex);
+    while (!m_worker->m_openReady)
+        m_worker->m_wait.wait(&m_worker->m_mutex);
+
     m_worker->m_mutex.unlock();
 
     return g_channelId;
@@ -344,6 +404,10 @@ void GbinderApduInterface::logic_channel_close(struct euicc_ctx *ctx, uint8_t ch
     gbinder_client_unref(m_worker->m_client);
     gbinder_remote_object_unref(m_worker->m_remote);
     gbinder_servicemanager_unref(m_worker->m_sm);
+
+    m_worker->m_client = nullptr;
+    m_worker->m_remote = nullptr;
+    m_worker->m_sm = nullptr;
 }
 
 int GbinderApduInterface::transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t *rx_len, const uint8_t *tx, uint32_t tx_len)
@@ -356,7 +420,11 @@ int GbinderApduInterface::transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t
     // tx_copy will be freed by the worker
     emit transmit(tx_copy, tx_len);
 
-    m_worker->m_wait.wait(&m_worker->m_mutex);
+    m_worker->m_transmitResponseReady = false;
+
+    while (!m_worker->m_transmitResponseReady)
+        m_worker->m_wait.wait(&m_worker->m_mutex);
+
     m_worker->m_mutex.unlock();
 
     *rx_len = g_lastIccIoResult.simResponse.len / 2 + 2;
@@ -367,6 +435,7 @@ int GbinderApduInterface::transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t
 
     // see radio_response_transact -- this is our buffer.
     free((void *)g_lastIccIoResult.simResponse.data.str);
+    g_lastIccIoResult.simResponse.data.str = nullptr;
 
     return 0;
 }
@@ -379,6 +448,39 @@ void GbinderApduInterface::clean()
 
     m_worker->m_wait.wait(&m_worker->m_mutex);
     m_worker->m_mutex.unlock();
+
+    gbinder_client_unref(m_worker->m_client);
+    m_worker->m_client = nullptr;
+    gbinder_remote_object_unref(m_worker->m_remote);
+    m_worker->m_remote = nullptr;
+    gbinder_servicemanager_unref(m_worker->m_sm);
+    m_worker->m_sm = nullptr;
+}
+
+void GbinderApduInterface::wait_for_refresh()
+{
+    m_worker->m_mutex.lock();
+
+    std::cout << "Waiting for SIM refresh indication..." << std::endl;
+
+    // Armed in arm_refresh()
+    while (!m_worker->m_refreshReceived)
+        m_worker->m_wait.wait(&m_worker->m_mutex);
+
+    m_worker->m_mutex.unlock();
+
+    std::cout << "SIM refresh indication received and handled." << std::endl;
+    std::cout << "Querying card status..." << std::endl;
+
+    m_worker->m_mutex.lock();
+
+    while (!m_worker->m_cardStatusReady) {
+        emit getCardStatus();
+        m_worker->m_wait.wait(&m_worker->m_mutex);
+    }
+
+    m_worker->m_mutex.unlock();
+    std::cout << "Card status received and handled." << std::endl;
 }
 
 // This method will only be called after logic_channel_close is called, so we are responsible for creating our own objects

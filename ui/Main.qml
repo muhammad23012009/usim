@@ -1,20 +1,24 @@
 import QtQuick
-import QtQuick.Controls
+import Lomiri.Components
 import USim
 
-ApplicationWindow {
-    width: 640
-    height: 480
+MainView {
+    applicationName: "usim.thevancedgamer"
     visible: true
 
-    TextField {
-        onAccepted: {
-            USim.processLpa(text)
+    Connections {
+        target: USim
+        onEsimsChanged: {
+            print("Porno", esims);
         }
+    }
+
+    PageStack {
+        id: pageStack
     }
 
     Component.onCompleted: {
         USim.getInstalledEsims()
-        USim.removeEsim("8944476500008875622")
+        pageStack.push(Qt.resolvedUrl("qrc:/ui/USim.qml"))
     }
 }

@@ -21,32 +21,16 @@
 #include <QObject>
 #include <QDebug>
 #include <QMutex>
+#include <QWaitCondition>
+
+extern "C" {
 #include <euicc/euicc.h>
 #include <euicc/interface.h>
+}
+
+#include "types.h"
 
 // Runs in a separate thread (because why not i am a man of free will)
-struct eSIMInfo {
-    Q_GADGET
-
-    Q_PROPERTY(QString name MEMBER name)
-    Q_PROPERTY(QString providerName MEMBER providerName)
-    Q_PROPERTY(QString iccid MEMBER iccid)
-    Q_PROPERTY(bool enabled MEMBER enabled)
-
-public:
-    QString name;
-    QString providerName;
-    QString iccid;
-    bool enabled;
-
-    bool operator==(const eSIMInfo& other) const {
-        return name == other.name &&
-               providerName == other.providerName &&
-               iccid == other.iccid &&
-               enabled == other.enabled;
-    }
-};
-
 class LpacWorker : public QObject
 {
     Q_OBJECT
@@ -55,8 +39,14 @@ public:
     explicit LpacWorker(QObject *parent = nullptr);
     ~LpacWorker() = default;
 
+    QMutex m_userConfirmationMutex;
+    QWaitCondition m_userConfirmation;
+    bool m_userConfirmed = false;
+
 signals:
     void esimsChanged(QList<eSIMInfo> esims);
+    void stateChanged(USimNamespace::LpacState state);
+    void askForUserConfirmation(QString simName, QString providerName, QString iccid);
 
 public slots:
     void processLpa(const QString& lpaString);

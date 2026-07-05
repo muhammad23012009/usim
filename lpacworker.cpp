@@ -18,10 +18,12 @@
 #include "lpacworker.h"
 #include "gbinderapdu.hpp"
 
+extern "C" {
 #include <euicc/es8p.h>
 #include <euicc/es9p.h>
 #include <euicc/es10a.h>
 #include <euicc/es10b.h>
+}
 
 #include <QThread>
 #include <QDebug>
@@ -86,27 +88,35 @@ void LpacWorker::processLpa(const QString& lpaString)
     qDebug() << "activation code:" << components[2];
     qDebug() << "confirmation code:" << components.value(4, "N/A");
 
+    emit stateChanged(USimNamespace::LpacState::STARTING);
+
     installProfile(components[1], components[2], components.value(4, ""));
 }
 
 void LpacWorker::removeEsim(const QString& iccid)
 {
-    EuiccContextGuard guard(&m_ctx, &m_mutex);
     QByteArray iccidBytes = iccid.toUtf8();
     int ret = 0;
+    eSIMInfo esim;
+
+    euicc_init(&m_ctx);
+
+    emit stateChanged(USimNamespace::LpacState::STARTING);
 
     qDebug() << "Removing eSIM with ICCID:" << iccid;
 
     if (!m_esims.contains(iccid)) {
         qWarning() << "eSIM with ICCID:" << iccid << "not found.";
-        return;
+        goto end;
     }
 
-    eSIMInfo esim = m_esims.take(iccid);
+    esim = m_esims.take(iccid);
     if (esim.enabled) {
         qWarning() << "eSIM with ICCID:" << iccid << "is enabled. Disable in a new context before removing.";
-        return;
+        goto end;
     }
+
+    emit stateChanged(USimNamespace::LpacState::REMOVING);
 
     ret = es10c_delete_profile(&m_ctx, iccidBytes.constData());
     if (ret != 0) {
@@ -115,31 +125,62 @@ void LpacWorker::removeEsim(const QString& iccid)
     }
     qDebug() << "Deleted eSIM with ICCID:" << iccid;
 
+    emit esimsChanged(m_esims.values());
+
+    emit stateChanged(USimNamespace::LpacState::PROCESS_AND_FINISH);
+
+    // After removing the eSIM, radio HAL does something funky. To reconnect, we need to close the binder
+    // connection and then reopen the logical channel.
+    GbinderApduInterface::instance()->clean();
+    m_ctx.apdu._internal.logic_channel = -1;
+
+    // now RIL is a proper bitch and will make you wait up to 60 fucking seconds
+    for (int attempt = 0; attempt < 60; ++attempt) {
+        ret = euicc_init(&m_ctx);
+        if (ret == 0) break;
+        QThread::msleep(1000);
+    }
+
     processNotifications();
 
-    emit esimsChanged(m_esims.values());
+end:
+    emit stateChanged(USimNamespace::LpacState::DONE);
+    euicc_fini(&m_ctx);
 }
 
 void LpacWorker::enableEsim(const QString& iccid)
 {
-    EuiccContextGuard guard(&m_ctx, &m_mutex);
     QByteArray iccidBytes = iccid.toUtf8();
     int ret = 0;
+
+    euicc_init(&m_ctx);
+    emit stateChanged(USimNamespace::LpacState::STARTING);
 
     qDebug() << "Enabling eSIM with ICCID:" << iccid;
 
     if (!m_esims.contains(iccid)) {
         qWarning() << "eSIM with ICCID:" << iccid << "not found.";
-        return;
+        goto end;
     }
 
     if (m_esims[iccid].enabled) {
         qWarning() << "eSIM with ICCID:" << iccid << "is already enabled.";
-        return;
+        goto end;
     }
 
+    for (const auto& esim : m_esims) {
+        if (esim.enabled) {
+            disableEsim(esim.iccid);
+            break;
+        }
+    }
+
+    emit stateChanged(USimNamespace::LpacState::ENABLING);
+
+    GbinderApduInterface::instance()->arm_refresh();
+
     // Since we're refreshing, the eUICC can act up, so we should probably wait until it has settled
-    ret = es10c_enable_profile(&m_ctx, iccidBytes.constData(), 0);
+    ret = es10c_enable_profile(&m_ctx, iccidBytes.constData(), 1);
     if (ret != 0) {
         qWarning() << "Failed to enable eSIM with ICCID:" << iccid << "Error code:" << ret;
         return;
@@ -149,28 +190,30 @@ void LpacWorker::enableEsim(const QString& iccid)
     m_esims[iccid].enabled = true;
     emit esimsChanged(m_esims.values());
 
-    int maxAttempts = 15;
-    for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
-        qDebug() << "Attempt" << attempt << "to process notifications.";
+    emit stateChanged(USimNamespace::LpacState::PROCESS_AND_FINISH);
 
-        char *eidValue = nullptr;
-        if (es10c_get_eid(&m_ctx, &eidValue) == 0) {
-            qDebug() << "Successfully retrieved EID:" << eidValue;
-            free(eidValue);
-            break;
-        }
-        qDebug() << "Waiting for the modem to settle the fuck down";
-        QThread::sleep(1);
-    }
+    // Wait and receive the refresh indication
+    GbinderApduInterface::instance()->wait_for_refresh();
+    // The logical channel is now dead. Clear it, and reinit the eUICC context
+    m_ctx.apdu._internal.logic_channel = -1;
+
+    euicc_init(&m_ctx);
 
     processNotifications();
+
+end:
+    emit stateChanged(USimNamespace::LpacState::DONE);
+    euicc_fini(&m_ctx);
 }
 
 void LpacWorker::disableEsim(const QString& iccid)
 {
-    EuiccContextGuard guard(&m_ctx, &m_mutex);
+    euicc_init(&m_ctx);
+
     QByteArray iccidBytes = iccid.toUtf8();
     int ret = 0;
+
+    emit stateChanged(USimNamespace::LpacState::STARTING);
 
     qDebug() << "Disabling eSIM with ICCID:" << iccid;
 
@@ -184,9 +227,11 @@ void LpacWorker::disableEsim(const QString& iccid)
         return;
     }
 
-    // ugh, disabling is still so fucked up, immediately removing an esim after it's installed
-    // does not work, and the modem keeps replying with error 5, how the hell do i even fix this
-    ret = es10c_disable_profile(&m_ctx, iccidBytes.constData(), 0);
+    emit stateChanged(USimNamespace::LpacState::DISABLING);
+
+    GbinderApduInterface::instance()->arm_refresh();
+
+    ret = es10c_disable_profile(&m_ctx, iccidBytes.constData(), 1);
     if (ret != 0) {
         qWarning() << "Failed to disable eSIM with ICCID:" << iccid << "Error code:" << ret;
         return;
@@ -196,7 +241,17 @@ void LpacWorker::disableEsim(const QString& iccid)
     m_esims[iccid].enabled = false;
     emit esimsChanged(m_esims.values());
 
+    emit stateChanged(USimNamespace::LpacState::PROCESS_AND_FINISH);
+
+    GbinderApduInterface::instance()->wait_for_refresh();
+    // If we get here, the logical channel is now dead. Clear it, and reinit the eUICC context
+    m_ctx.apdu._internal.logic_channel = -1;
+    euicc_init(&m_ctx);
+
     processNotifications();
+
+    emit stateChanged(USimNamespace::LpacState::DONE);
+    euicc_fini(&m_ctx);
 }
 
 void LpacWorker::getInstalledEsims()
@@ -243,6 +298,8 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
     es8p_metadata *metadata = nullptr;
 
     qDebug() << "Getting authentication info";
+    emit stateChanged(USimNamespace::LpacState::GETTING_CHALLENGE);
+
     ret = es10b_get_euicc_challenge_and_info(&m_ctx);
     if (ret != 0) {
         qWarning() << "Failed to get authentication info." << ret;
@@ -250,21 +307,25 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
     }
 
     qDebug() << "initiating auth";
+    emit stateChanged(USimNamespace::LpacState::INIT_AUTH);
     if (es9p_initiate_authentication(&m_ctx)) {
         qWarning() << "Failed to initiate authentication.";
-        return;
+        goto err;
     }
 
     qDebug() << "authenticating server";
+    emit stateChanged(USimNamespace::LpacState::AUTH_SERVER);
     if (es10b_authenticate_server(&m_ctx, activationCode.toUtf8().constData(), imei)) {
         qWarning() << "Failed to authenticate server.";
-        return;
+        goto err;
     }
 
     qDebug() << "Authenticating client";
+    emit stateChanged(USimNamespace::LpacState::AUTH_CLIENT);
     if (es9p_authenticate_client(&m_ctx)) {
         qWarning() << "Failed to authenticate client.";
-        return;
+        processNotifications();
+        goto err;
     }
 
     if (m_ctx.http._internal.prepare_download_param->b64_profileMetadata) {
@@ -273,8 +334,22 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
             qDebug() << "Parsed metadata. Profile Name:" << metadata->profileName
                      << "Service Provider Name:" << metadata->serviceProviderName
                      << "ICCID:" << metadata->iccid;
-            // if you gate on user confirmation, block the worker here on a
-            // QWaitCondition / std::condition_variable until the GUI answers.
+
+            emit askForUserConfirmation(QString::fromUtf8(metadata->profileName),
+                                    QString::fromUtf8(metadata->serviceProviderName),
+                                    QString::fromUtf8(metadata->iccid));
+
+            emit stateChanged(USimNamespace::LpacState::METADATA_PARSING);
+
+            m_userConfirmed = false;
+            m_userConfirmationMutex.lock();
+            m_userConfirmation.wait(&m_userConfirmationMutex);
+            m_userConfirmationMutex.unlock();
+
+            if (!m_userConfirmed) {
+                qWarning() << "User rejected profile installation.";
+                goto err;
+            }
         }
     }
 
@@ -283,16 +358,19 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
         goto err;
     }
 
+    emit stateChanged(USimNamespace::LpacState::PREPARE_DOWNLOAD);
     if (es10b_prepare_download(&m_ctx, confirmationCode.length() > 0 ? confirmationCode.toUtf8().constData() : nullptr) != 0) {
         qWarning() << "Failed to prepare download.";
         goto err;
     }
 
+    emit stateChanged(USimNamespace::LpacState::GET_BOUND_PACKAGE);
     if (es9p_get_bound_profile_package(&m_ctx) != 0) {
         qWarning() << "Failed to get bound profile package.";
         goto err;
     }
 
+    emit stateChanged(USimNamespace::LpacState::DOWNLOAD_PACKAGE);
     if (es10b_load_bound_profile_package(&m_ctx, &result) != 0) {
         qWarning() << "Failed to load bound profile package.";
         goto err;
@@ -311,23 +389,25 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
     m_esims.insert(info.iccid, info);
     emit esimsChanged(m_esims.values());
 
+    emit stateChanged(USimNamespace::LpacState::PROCESS_AND_FINISH);
+
     processNotifications();
 
     es8p_metadata_free(&metadata);
     euicc_fini(&m_ctx);
 
-    // Now power cycle the SIM
-    GbinderApduInterface::instance()->sim_power_off();
-    GbinderApduInterface::instance()->sim_power_on();
+    emit stateChanged(USimNamespace::LpacState::DONE);
 
     return;
 
+    // TODO: Clean up the error routine
 err:
     es10b_cancel_session(&m_ctx, ES10B_CANCEL_SESSION_REASON_ENDUSERREJECTION);
     es9p_cancel_session(&m_ctx);
     euicc_http_cleanup(&m_ctx);
     es8p_metadata_free(&metadata);
     euicc_fini(&m_ctx);
+    emit stateChanged(USimNamespace::LpacState::DONE);
     qWarning() << "Profile installation failed. Session canceled.";
 }
 

@@ -1,5 +1,7 @@
 <RCC>
     <qresource prefix="/">
         <file>ui/Main.qml</file>
+        <file>ui/USim.qml</file>
+        <file>ui/EsimDelegate.qml</file>
     </qresource>
 </RCC>

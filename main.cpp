@@ -18,14 +18,15 @@
 #include <iostream>
 #include <QObject>
 #include <QGuiApplication>
-#include <QQmlApplicationEngine>
+#include <QQuickView>
 
 #include "usim.h"
+#include "types.h"
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
-    QQmlApplicationEngine engine;
+    QQuickView view;
     USim sim;
 
     qmlRegisterSingletonType<USim>("USim", 1, 0, "USim", [&sim](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject* {
@@ -34,6 +35,10 @@ int main(int argc, char *argv[])
         return &sim;
     });
 
-    engine.load(QUrl(QStringLiteral("qrc:/ui/Main.qml")));
+    qmlRegisterUncreatableMetaObject(USimNamespace::staticMetaObject, "USim", 1, 0, "USimEnums", "Namespace");
+
+    view.setSource(QUrl(QStringLiteral("qrc:/ui/Main.qml")));
+    view.setResizeMode(QQuickView::SizeRootObjectToView);
+    view.show();
     return app.exec();
 }
