@@ -1,0 +1,13 @@
+clickable_minimum_required: 8.0.0
+builder: cmake
+ignore_review_errors: true
+framework: ubuntu-touch-24.04-2.x
+
+dependencies_target:
+- libgbinder-dev
+- libglib2.0-dev
+- libcurl4-gnutls-dev
+- pkg-config
+- libpcsclite-dev
+- qt6-base-dev
+- qt6-declarative-dev

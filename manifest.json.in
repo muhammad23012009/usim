@@ -1,0 +1,15 @@
+{
+    "name": "usim.thevancedgamer",
+    "description": "Manage your eSIMs on your Ubuntu Touch device",
+    "architecture": "arm64",
+    "title": "USim",
+    "hooks": {
+        "usim": {
+            "apparmor": "usim.apparmor",
+            "desktop": "usim.desktop"
+        }
+    },
+    "version": "1.0",
+    "maintainer": "Muhammad <thevancedgamer@mentallysanemainliners.org>",
+    "framework": "ubuntu-touch-24.04-1.x"
+}
