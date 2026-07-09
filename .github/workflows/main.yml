@@ -13,9 +13,6 @@ jobs:
       fail-fast: false
     runs-on: ubuntu-24.04
     steps:
-      - name: "clone lpac"
-        run: |
-          git clone https://github.com/estkme-group/lpac
       - uses: actions/checkout@v4
       - name: build package
         env:
@@ -23,7 +20,9 @@ jobs:
         uses: tuxecure/clickable@v1
         with:
           image: clickable/ci-ut24.04-2.x-arm64
-          run: clickable build --verbose
+          run: |
+            git clone https://github.com/estkme-group/lpac
+            clickable build --verbose
       - uses: actions/upload-artifact@v4
         with:
           name: "ubports-arm64--ut24.04-2.x"
