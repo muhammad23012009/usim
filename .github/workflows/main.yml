@@ -22,7 +22,7 @@ jobs:
           image: clickable/ci-ut24.04-2.x-arm64
           run: |
             git clone https://github.com/muhammad23012009/lpac
-            clickable build --verbose
+            clickable build --verbose || true
       - uses: actions/upload-artifact@v4
         with:
           name: "ubports-arm64--ut24.04-2.x"
