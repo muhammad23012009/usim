@@ -1,0 +1,28 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  ubuntu-touch:
+    strategy:
+      fail-fast: false
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: build package
+        env:
+          CLICKABLE_FRAMEWORK: ${{ 'ubuntu-touch-24.04-2.x' }}
+        uses: tuxecure/clickable@v1
+        with:
+          image: clickable/ci-ut24.04-2.x-arm64
+          run: clickable build --verbose
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "ubports-arm64--ut24.04-2.x"
+          path: "build/*/app/*.click"
+          if-no-files-found: ignore
