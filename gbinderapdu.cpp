@@ -26,6 +26,7 @@
 #include "gbinderapdu.hpp"
 
 extern "C" {
+#define restrict
 #include <euicc/hexutil.h>
 }
 
