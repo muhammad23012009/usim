@@ -268,12 +268,26 @@ void LpacWorker::getInstalledEsims()
             info.name = QString::fromUtf8(i->profileName);
             info.providerName = QString::fromUtf8(i->serviceProviderName);
             info.enabled = i->profileState == ES10C_PROFILE_STATE_ENABLED;
+            qDebug() << "Found eSIM: ICCID:" << info.iccid
+                     << "Name:" << info.name
+                     << "Provider:" << info.providerName
+                     << "Enabled:" << info.enabled;
+            qDebug() << "eSIM has following profile rules:";
+            if (i->profilePolicyRules) {
+                for (char **rule = i->profilePolicyRules; *rule != nullptr; ++rule) {
+                    qDebug() << "  Rule:" << QString::fromUtf8(*rule);
+                }
+            } else {
+                qDebug() << "  No profile rules found.";
+            }
             m_esims.insert(info.iccid, info);
         }
     }
 
     m_esimsParsed = true;
     emit esimsChanged(m_esims.values());
+
+    processNotifications();
 }
 
 void LpacWorker::installProfile(const QString& smdp, const QString& activationCode, const QString& confirmationCode)
@@ -409,6 +423,20 @@ err:
     euicc_fini(&m_ctx);
     emit stateChanged(USimNamespace::LpacState::DONE);
     qWarning() << "Profile installation failed. Session canceled.";
+}
+
+void LpacWorker::destroyEuicc()
+{
+    // Careful here, don't want to destroy the eUICC memory unless the user is sure
+    EuiccContextGuard guard(&m_ctx, &m_mutex);
+    int ret = es10c_euicc_memory_reset(&m_ctx);
+    if (ret != 0) {
+        qWarning() << "Failed to destroy eUICC memory. Error code:" << ret;
+    } else {
+        qDebug() << "Successfully destroyed eUICC memory.";
+        m_esims.clear();
+        emit esimsChanged(m_esims.values());
+    }
 }
 
 // Must be called with EuiccContextGuard held

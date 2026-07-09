@@ -45,6 +45,17 @@ extern "C" {
 #define HIDL_SERVICE_ICC_TRANSMIT_APDU_LOGICAL_CHANNEL_CALLBACK (GBINDER_FIRST_CALL_TRANSACTION + 106)
 #define HIDL_SERVICE_SET_SIM_POWER_CALLBACK (GBINDER_FIRST_CALL_TRANSACTION + 127)
 
+#define AIDL_SERVICE_SET_RESPONSE_FUNCTIONS 28
+#define AIDL_SERVICE_GET_ICC_CARD_STATUS 9
+#define AIDL_SERVICE_ICC_OPEN_LOGICAL_CHANNEL 15
+#define AIDL_SERVICE_ICC_CLOSE_LOGICAL_CHANNEL 13
+#define AIDL_SERVICE_ICC_TRANSMIT_APDU_LOGICAL_CHANNEL 17
+
+#define AIDL_SERVICE_GET_ICC_CARD_STATUS_CALLBACK 10
+#define AIDL_SERVICE_ICC_OPEN_LOGICAL_CHANNEL_CALLBACK 16
+#define AIDL_SERVICE_ICC_CLOSE_LOGICAL_CHANNEL_CALLBACK 14
+#define AIDL_SERVICE_ICC_TRANSMIT_APDU_LOGICAL_CHANNEL_CALLBACK 18
+
 struct icc_io_result {
     int32_t sw1;
     int32_t sw2;
@@ -86,6 +97,10 @@ struct card_status {
 class GBinderWorker : public QObject
 {
     Q_OBJECT
+
+public:
+    GBinderWorker();
+
 public slots:
     void onLogicChannelOpen(uint8_t *aid, uint8_t aid_len);
     void onTransmit(uint8_t *tx, uint32_t tx_len);
@@ -103,14 +118,18 @@ public:
     GBinderClient *m_client = nullptr;
     bool m_openReady = false;
     bool m_cardStatusReady = false;
+    bool m_cardStatusReceived = false;
     bool m_refreshReceived = false;
     bool m_transmitResponseReady = false;
+    bool m_simPowerReady = false;
 
 private:
     static GBinderLocalReply *radioResponseHandler(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
                                                    guint flags, int *status, void *user_data);
     static GBinderLocalReply *radioIndicationHandler(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
                                                      guint flags, int *status, void *user_data);
+
+    bool m_aidl = false;
 };
 
 class GbinderApduInterface : public QObject
@@ -143,6 +162,7 @@ public:
     void arm_refresh() {
         m_worker->m_refreshReceived = false;
         m_worker->m_cardStatusReady = false;
+        m_worker->m_cardStatusReceived = false;
     }
 
 // Signals used to dispatch work to the GBinderWorker thread

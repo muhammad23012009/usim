@@ -4,6 +4,6 @@
         "location",
         "webview"
     ],
-    "policy_version": 9999,
+    "policy_version": $ENV{APPARMOR_POLICY},
     "template": "unconfined"
 }

@@ -34,6 +34,7 @@ USim::USim(QObject *parent):
     connect(this, &USim::removeEsim, m_lpacWorker, &LpacWorker::removeEsim);
     connect(this, &USim::enableEsim, m_lpacWorker, &LpacWorker::enableEsim);
     connect(this, &USim::disableEsim, m_lpacWorker, &LpacWorker::disableEsim);
+    connect(this, &USim::destroyEuicc, m_lpacWorker, &LpacWorker::destroyEuicc);
     connect(this, &USim::getInstalledEsims, m_lpacWorker, &LpacWorker::getInstalledEsims);
 
     connect(m_lpacWorker, &LpacWorker::esimsChanged, this, [this](QList<eSIMInfo> esims) {
@@ -76,4 +77,6 @@ USim::USim(QObject *parent):
     });
 
     m_lpacThread->start();
+    qDebug() << "This thread is: " << QThread::currentThread() << " and the lpac thread is: " << m_lpacThread;
 }
+

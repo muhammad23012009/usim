@@ -43,6 +43,7 @@ signals:
     void removeEsim(const QString& iccid);
     void enableEsim(const QString& iccid);
     void disableEsim(const QString& iccid);
+    void destroyEuicc();
     void getInstalledEsims();
     void esimsChanged(QList<eSIMInfo> esims);
     void stateChanged(USimNamespace::LpacState state);

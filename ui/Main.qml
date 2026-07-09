@@ -5,13 +5,7 @@ import USim
 MainView {
     applicationName: "usim.thevancedgamer"
     visible: true
-
-    Connections {
-        target: USim
-        onEsimsChanged: {
-            print("Porno", esims);
-        }
-    }
+    anchorToKeyboard: true
 
     PageStack {
         id: pageStack

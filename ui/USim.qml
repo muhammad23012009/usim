@@ -16,6 +16,13 @@ Page {
                 iconName: "add"
                 text: "Add eSIM"
                 onTriggered: PopupUtils.open(addSimDialog)
+            },
+            Action {
+                iconName: "delete"
+                text: "Destroy eUICC"
+                onTriggered: {
+                    USim.destroyEuicc()
+                }
             }
         ]
     }
@@ -52,6 +59,7 @@ Page {
         Dialog {
             id: meowDialog
             title: "Busy"
+            anchorToKeyboard: false
 
             Connections {
                 target: USim

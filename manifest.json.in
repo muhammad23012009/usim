@@ -11,5 +11,5 @@
     },
     "version": "1.0",
     "maintainer": "Muhammad <thevancedgamer@mentallysanemainliners.org>",
-    "framework": "ubuntu-touch-24.04-1.x"
+    "framework": "ubuntu-touch-24.04-2.x"
 }

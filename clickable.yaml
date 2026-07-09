@@ -11,3 +11,6 @@ dependencies_target:
 - libpcsclite-dev
 - qt6-base-dev
 - qt6-declarative-dev
+- qtbase5-dev
+- qtdeclarative5-dev
+- qtbase5-private-dev

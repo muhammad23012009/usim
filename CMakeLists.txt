@@ -19,6 +19,9 @@ target_link_libraries(usim PUBLIC euicc Qt6::Core Qt6::Gui Qt6::Quick Qt6::Qml $
 target_include_directories(usim PRIVATE ${gbinder_INCLUDE_DIRS} ${libcurl_INCLUDE_DIRS} ${GLIB2_INCLUDE_DIRS})
 
 configure_file(manifest.json.in ${CMAKE_CURRENT_BINARY_DIR}/manifest.json)
+configure_file(usim.apparmor ${CMAKE_CURRENT_BINARY_DIR}/usim.apparmor)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/manifest.json DESTINATION ${CMAKE_INSTALL_PREFIX})
-install(FILES ${CMAKE_SOURCE_DIR}/usim.apparmor DESTINATION ${CMAKE_INSTALL_PREFIX})
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/usim.apparmor DESTINATION ${CMAKE_INSTALL_PREFIX})
 install(FILES ${CMAKE_SOURCE_DIR}/usim.desktop DESTINATION ${CMAKE_INSTALL_PREFIX})
+
+install(TARGETS usim RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

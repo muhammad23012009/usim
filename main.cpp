@@ -36,6 +36,7 @@ int main(int argc, char *argv[])
     });
 
     qmlRegisterUncreatableMetaObject(USimNamespace::staticMetaObject, "USim", 1, 0, "USimEnums", "Namespace");
+    qRegisterMetaType<QList<eSIMInfo>>("QList<eSIMInfo>");
 
     view.setSource(QUrl(QStringLiteral("qrc:/ui/Main.qml")));
     view.setResizeMode(QQuickView::SizeRootObjectToView);
