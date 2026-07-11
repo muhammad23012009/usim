@@ -51,14 +51,23 @@ struct eSIMInfo {
     Q_GADGET
 
     Q_PROPERTY(QString name MEMBER name)
+    Q_PROPERTY(QString nickname MEMBER nickname)
     Q_PROPERTY(QString providerName MEMBER providerName)
     Q_PROPERTY(QString iccid MEMBER iccid)
+    Q_PROPERTY(QString isdpAid MEMBER isdpAid)
+    Q_PROPERTY(QString plmn MEMBER plmn)
+    Q_PROPERTY(QString profileClass MEMBER profileClass)
+
     Q_PROPERTY(bool enabled MEMBER enabled)
 
 public:
     QString name;
+    QString nickname;
     QString providerName;
     QString iccid;
+    QString isdpAid;
+    QString plmn;
+    QString profileClass;
     bool enabled;
 
     bool operator==(const eSIMInfo& other) const {

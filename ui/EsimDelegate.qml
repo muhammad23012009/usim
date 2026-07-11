@@ -1,14 +1,10 @@
-import QtQuick
-import Lomiri.Components
-import QtQuick.Layouts
-import USim
+import QtQuick 2.15
+import Lomiri.Components 1.3
+import QtQuick.Layouts 1.15
+import USim 1.0
 
 ListItem {
     property var eSIMInfo: null
-
-    Component.onCompleted: {
-        print("Creating delegate with props:", eSIMInfo.name, eSIMInfo.providerName, eSIMInfo.iccid);
-    }
 
     height: layout.height + (divider.visible ? divider.height : 0)
 
@@ -25,7 +21,7 @@ ListItem {
 
     ListItemLayout {
         id: layout
-        title.text: eSIMInfo.name
+        title.text: eSIMInfo.nickname !== "" ? (eSIMInfo.nickname + " (" + eSIMInfo.name + ")") : eSIMInfo.name
         subtitle.text: eSIMInfo.providerName
 
         Switch {

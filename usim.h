@@ -38,11 +38,15 @@ public:
         m_lpacThread->wait();
     }
 
+public slots:
+    void openManualDialog();
+
 signals:
     void processLpa(const QString& lpaString);
     void removeEsim(const QString& iccid);
     void enableEsim(const QString& iccid);
     void disableEsim(const QString& iccid);
+    void renameEsim(const QString& iccid, const QString& nickname);
     void destroyEuicc();
     void getInstalledEsims();
     void esimsChanged(QList<eSIMInfo> esims);
@@ -50,6 +54,7 @@ signals:
     void busyChanged(bool busy);
     void installingEsimChanged(eSIMInfo installingEsim);
     void confirmEsimInstall(bool confirmed);
+    void showManualSimDialog();
 
 private:
     QList<eSIMInfo> m_esims;

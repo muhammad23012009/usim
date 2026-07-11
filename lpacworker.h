@@ -53,6 +53,7 @@ public slots:
     void removeEsim(const QString& iccid);
     void enableEsim(const QString& iccid);
     void disableEsim(const QString& iccid);
+    void renameEsim(const QString& iccid, const QString& nickname);
     void destroyEuicc();
     void getInstalledEsims();
 

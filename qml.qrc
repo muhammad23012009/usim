@@ -3,5 +3,7 @@
         <file>ui/Main.qml</file>
         <file>ui/USim.qml</file>
         <file>ui/EsimDelegate.qml</file>
+        <file>ui/QRScanPage.qml</file>
+        <file>ui/ProfileInfo.qml</file>
     </qresource>
 </RCC>

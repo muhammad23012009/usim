@@ -153,9 +153,6 @@ void LpacWorker::enableEsim(const QString& iccid)
     QByteArray iccidBytes = iccid.toUtf8();
     int ret = 0;
 
-    euicc_init(&m_ctx);
-    emit stateChanged(USimNamespace::LpacState::STARTING);
-
     qDebug() << "Enabling eSIM with ICCID:" << iccid;
 
     if (!m_esims.contains(iccid)) {
@@ -175,6 +172,9 @@ void LpacWorker::enableEsim(const QString& iccid)
         }
     }
 
+    euicc_init(&m_ctx);
+    emit stateChanged(USimNamespace::LpacState::STARTING);
+
     emit stateChanged(USimNamespace::LpacState::ENABLING);
 
     GbinderApduInterface::instance()->arm_refresh();
@@ -183,7 +183,7 @@ void LpacWorker::enableEsim(const QString& iccid)
     ret = es10c_enable_profile(&m_ctx, iccidBytes.constData(), 1);
     if (ret != 0) {
         qWarning() << "Failed to enable eSIM with ICCID:" << iccid << "Error code:" << ret;
-        return;
+        goto end;
     }
     qDebug() << "Enabled eSIM with ICCID:" << iccid;
 
@@ -219,12 +219,12 @@ void LpacWorker::disableEsim(const QString& iccid)
 
     if (!m_esims.contains(iccid)) {
         qWarning() << "eSIM with ICCID:" << iccid << "not found.";
-        return;
+        goto end;
     }
 
     if (!m_esims[iccid].enabled) {
         qWarning() << "eSIM with ICCID:" << iccid << "is already disabled.";
-        return;
+        goto end;
     }
 
     emit stateChanged(USimNamespace::LpacState::DISABLING);
@@ -234,7 +234,7 @@ void LpacWorker::disableEsim(const QString& iccid)
     ret = es10c_disable_profile(&m_ctx, iccidBytes.constData(), 1);
     if (ret != 0) {
         qWarning() << "Failed to disable eSIM with ICCID:" << iccid << "Error code:" << ret;
-        return;
+        goto end;
     }
     qDebug() << "Disabled eSIM with ICCID:" << iccid;
 
@@ -250,8 +250,38 @@ void LpacWorker::disableEsim(const QString& iccid)
 
     processNotifications();
 
+end:
     emit stateChanged(USimNamespace::LpacState::DONE);
     euicc_fini(&m_ctx);
+}
+
+void LpacWorker::renameEsim(const QString& iccid, const QString& nickname)
+{
+    QByteArray iccidBytes = iccid.toUtf8();
+    QByteArray nicknameBytes = nickname.toUtf8();
+
+    if (nickname == m_esims[iccid].nickname) {
+        qDebug() << "Nickname is the same as the current one. No action needed.";
+        return;
+    }
+
+    qDebug() << "Renaming eSIM with ICCID:" << iccid << "to nickname:" << nickname;
+
+    emit stateChanged(USimNamespace::LpacState::STARTING);
+
+    euicc_init(&m_ctx);
+
+    if (es10c_set_nickname(&m_ctx, iccidBytes.constData(), nicknameBytes.constData()) != 0) {
+        qWarning() << "Failed to set nickname for eSIM with ICCID:" << iccid;
+    }
+
+    qDebug() << "Successfully set nickname for eSIM with ICCID:" << iccid;
+
+    euicc_fini(&m_ctx);
+    m_esims[iccid].nickname = nickname;
+    emit esimsChanged(m_esims.values());
+
+    emit stateChanged(USimNamespace::LpacState::DONE);
 }
 
 void LpacWorker::getInstalledEsims()
@@ -264,22 +294,33 @@ void LpacWorker::getInstalledEsims()
 
         for (auto i = profileList; i != nullptr; i = i->next) {
             eSIMInfo info;
+            QString profileClass;
+
             info.iccid = QString::fromUtf8(i->iccid);
             info.name = QString::fromUtf8(i->profileName);
+            info.nickname = QString::fromUtf8(i->profileNickname);
             info.providerName = QString::fromUtf8(i->serviceProviderName);
             info.enabled = i->profileState == ES10C_PROFILE_STATE_ENABLED;
-            qDebug() << "Found eSIM: ICCID:" << info.iccid
-                     << "Name:" << info.name
-                     << "Provider:" << info.providerName
-                     << "Enabled:" << info.enabled;
-            qDebug() << "eSIM has following profile rules:";
-            if (i->profilePolicyRules) {
-                for (char **rule = i->profilePolicyRules; *rule != nullptr; ++rule) {
-                    qDebug() << "  Rule:" << QString::fromUtf8(*rule);
-                }
-            } else {
-                qDebug() << "  No profile rules found.";
+            info.isdpAid = QString::fromUtf8(i->isdpAid);
+            info.plmn = QString::fromUtf8(i->profileOwner.mccmnc);
+            qWarning() << "Does eSIM with ICCID:" << info.iccid << "have an icon?" << i->icon << i->iconType;
+
+            switch (i->profileClass) {
+                case ES10C_PROFILE_CLASS_TEST:
+                    profileClass = "Test";
+                    break;
+                case ES10C_PROFILE_CLASS_PROVISIONING:
+                    profileClass = "Provisioning";
+                    break;
+                case ES10C_PROFILE_CLASS_OPERATIONAL:
+                    profileClass = "Operational";
+                    break;
+                default:
+                    profileClass = "Unknown";
+                    break;
             }
+
+            info.profileClass = profileClass;
             m_esims.insert(info.iccid, info);
         }
     }

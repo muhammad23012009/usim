@@ -34,6 +34,7 @@ USim::USim(QObject *parent):
     connect(this, &USim::removeEsim, m_lpacWorker, &LpacWorker::removeEsim);
     connect(this, &USim::enableEsim, m_lpacWorker, &LpacWorker::enableEsim);
     connect(this, &USim::disableEsim, m_lpacWorker, &LpacWorker::disableEsim);
+    connect(this, &USim::renameEsim, m_lpacWorker, &LpacWorker::renameEsim);
     connect(this, &USim::destroyEuicc, m_lpacWorker, &LpacWorker::destroyEuicc);
     connect(this, &USim::getInstalledEsims, m_lpacWorker, &LpacWorker::getInstalledEsims);
 
@@ -43,7 +44,8 @@ USim::USim(QObject *parent):
             qDebug() << "eSIM Info - Name:" << esim.name
                      << ", Provider:" << esim.providerName
                      << ", ICCID:" << esim.iccid
-                     << ", Enabled:" << esim.enabled;
+                     << ", Enabled:" << esim.enabled
+                     << ", Nickname:" << esim.nickname;
         }
         m_esims = esims;
         emit esimsChanged(m_esims);
@@ -80,3 +82,6 @@ USim::USim(QObject *parent):
     qDebug() << "This thread is: " << QThread::currentThread() << " and the lpac thread is: " << m_lpacThread;
 }
 
+void USim::openManualDialog() {
+    emit showManualSimDialog();
+}

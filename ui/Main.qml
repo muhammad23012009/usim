@@ -1,6 +1,6 @@
-import QtQuick
-import Lomiri.Components
-import USim
+import QtQuick 2.15
+import Lomiri.Components 1.3
+import USim 1.0
 
 MainView {
     applicationName: "usim.thevancedgamer"

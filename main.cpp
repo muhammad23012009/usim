@@ -22,6 +22,7 @@
 
 #include "usim.h"
 #include "types.h"
+#include "qzxing/src/QZXing.h"
 
 int main(int argc, char *argv[])
 {
@@ -37,6 +38,10 @@ int main(int argc, char *argv[])
 
     qmlRegisterUncreatableMetaObject(USimNamespace::staticMetaObject, "USim", 1, 0, "USimEnums", "Namespace");
     qRegisterMetaType<QList<eSIMInfo>>("QList<eSIMInfo>");
+    qRegisterMetaType<USimNamespace::LpacState>("USimNamespace::LpacState");
+    qRegisterMetaType<uint8_t>("uint8_t");
+    qRegisterMetaType<uint32_t>("uint32_t");
+    QZXing::registerQMLTypes();
 
     view.setSource(QUrl(QStringLiteral("qrc:/ui/Main.qml")));
     view.setResizeMode(QQuickView::SizeRootObjectToView);

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=USim
 Exec=bin/usim
-#Icon=rockwork.svg
+Icon=logo.svg
 Terminal=false
 Type=Application
 X-Lomiri-Touch=true

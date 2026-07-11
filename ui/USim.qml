@@ -1,9 +1,10 @@
-import QtQuick
-import Lomiri.Components
-import Lomiri.Components.Popups
-import USim
+import QtQuick 2.15
+import Lomiri.Components 1.3
+import Lomiri.Components.Popups 1.3
+import USim 1.0
 
 Page {
+    id: usimPage
     visible: true
     anchors.fill: parent
 
@@ -15,14 +16,12 @@ Page {
             Action {
                 iconName: "add"
                 text: "Add eSIM"
-                onTriggered: PopupUtils.open(addSimDialog)
+                onTriggered: pageStack.push(Qt.resolvedUrl("qrc:/ui/QRScanPage.qml"))
             },
             Action {
                 iconName: "delete"
                 text: "Destroy eUICC"
-                onTriggered: {
-                    USim.destroyEuicc()
-                }
+                onTriggered: PopupUtils.open(superScaryDialog)
             }
         ]
     }
@@ -34,6 +33,10 @@ Page {
             if (busy) {
                 PopupUtils.open(busyDialog)
             }
+        }
+
+        onShowManualSimDialog: () => {
+            PopupUtils.open(addSimDialog)
         }
     }
 
@@ -50,6 +53,8 @@ Page {
 
         delegate: EsimDelegate {
             eSIMInfo: modelData
+
+            onClicked: pageStack.push(Qt.resolvedUrl("qrc:/ui/ProfileInfo.qml"), {eSIMInfo: modelData})
         }
     }
 
@@ -108,13 +113,14 @@ Page {
                 }
             }
 
-            Text {
+            Label {
                 text: "Are you sure you want to install the eSIM with the following details?\n\n" +
                       "Profile Name: " + USim.installingEsim.name + "\n" +
                       "Service Provider: " + USim.installingEsim.providerName + "\n" +
                       "ICCID: " + USim.installingEsim.iccid
 
                 wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
                 visible: USim.state === USimEnums.METADATA_PARSING
             }
 
@@ -159,6 +165,35 @@ Page {
             Button {
                 text: "Cancel"
                 onClicked: PopupUtils.close(dialog)
+            }
+        }
+    }
+
+    Component {
+        id: superScaryDialog
+
+        Dialog {
+            id: destroyDialog
+            title: "Destroy eUICC memory?"
+
+            Label {
+                text: "Are you sure you want to destroy the eUICC memory? This will remove all eSIMs and cannot be done. This action is irreversible. Removed eSIMs cannot be reinstalled without provider intervention."
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Button {
+                text: "Yes"
+                color: LomiriColors.red
+                onClicked: {
+                    PopupUtils.close(destroyDialog)
+                    USim.destroyEuicc()
+                }
+            }
+
+            Button {
+                text: "No"
+                onClicked: PopupUtils.close(destroyDialog)
             }
         }
     }
