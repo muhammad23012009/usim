@@ -1,0 +1,6 @@
+[submodule "qzxing"]
+	path = qzxing
+	url = https://github.com/muhammad23012009/qzxing
+[submodule "lpac"]
+	path = lpac
+	url = https://github.com/muhammad23012009/lpac
