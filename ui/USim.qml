@@ -68,6 +68,18 @@ Page {
         }
     }
 
+    Label {
+        text: "No eSIMs installed.\nInstall one by clicking the + button in the top right corner."
+        width: parent.width
+
+        anchors.centerIn: parent
+
+        visible: USim.esims.length === 0
+        wrapMode: Text.WordWrap
+        horizontalAlignment: Text.AlignHCenter
+        clip: true
+    }
+
     Component {
         id: busyDialog
 
