@@ -21,8 +21,9 @@ jobs:
         with:
           image: clickable/ci-ut24.04-2.x-arm64
           run: |
-            git config --global --add safe.directory /tmp/clickable_base/usim
-            git submodule update --init
+            rm -rf lpac qzxing
+            git clone https://github.com/muhammad23012009/lpac
+            git clone https://github.com/muhammad23012009/qzxing
             clickable build --verbose || true
       - uses: actions/upload-artifact@v4
         with:
