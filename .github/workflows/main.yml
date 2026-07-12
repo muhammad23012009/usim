@@ -21,6 +21,7 @@ jobs:
         with:
           image: clickable/ci-ut24.04-2.x-arm64
           run: |
+            git config --global --add safe.directory /tmp/clickable_base/usim
             git submodule update --init
             clickable build --verbose || true
       - uses: actions/upload-artifact@v4
