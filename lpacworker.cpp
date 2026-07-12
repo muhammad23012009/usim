@@ -27,6 +27,7 @@ extern "C" {
 
 #include <QThread>
 #include <QDebug>
+#include <QProcess>
 
 int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint32_t *rcode, uint8_t **rx,
                                    uint32_t *rx_len, const uint8_t *tx, uint32_t tx_len, const char **h);
@@ -95,6 +96,7 @@ void LpacWorker::processLpa(const QString& lpaString)
 
 void LpacWorker::removeEsim(const QString& iccid)
 {
+    QString errorReason;
     QByteArray iccidBytes = iccid.toUtf8();
     int ret = 0;
     eSIMInfo esim;
@@ -121,8 +123,10 @@ void LpacWorker::removeEsim(const QString& iccid)
     ret = es10c_delete_profile(&m_ctx, iccidBytes.constData());
     if (ret != 0) {
         qWarning() << "Failed to delete eSIM with ICCID:" << iccid << "Error code:" << ret;
-        return;
+        errorReason = "Failed to delete eSIM, error code: " + QString::number(ret);
+        goto err;
     }
+
     qDebug() << "Deleted eSIM with ICCID:" << iccid;
 
     emit esimsChanged(m_esims.values());
@@ -142,6 +146,10 @@ void LpacWorker::removeEsim(const QString& iccid)
     }
 
     processNotifications();
+    goto end;
+
+err:
+    emit errorOccured(errorReason);
 
 end:
     emit stateChanged(USimNamespace::LpacState::DONE);
@@ -150,6 +158,7 @@ end:
 
 void LpacWorker::enableEsim(const QString& iccid)
 {
+    QString errorReason;
     QByteArray iccidBytes = iccid.toUtf8();
     int ret = 0;
 
@@ -183,8 +192,10 @@ void LpacWorker::enableEsim(const QString& iccid)
     ret = es10c_enable_profile(&m_ctx, iccidBytes.constData(), 1);
     if (ret != 0) {
         qWarning() << "Failed to enable eSIM with ICCID:" << iccid << "Error code:" << ret;
-        goto end;
+        errorReason = "Failed to enable eSIM, error code: " + QString::number(ret);
+        goto err;
     }
+
     qDebug() << "Enabled eSIM with ICCID:" << iccid;
 
     m_esims[iccid].enabled = true;
@@ -200,6 +211,10 @@ void LpacWorker::enableEsim(const QString& iccid)
     euicc_init(&m_ctx);
 
     processNotifications();
+    goto end;
+
+err:
+    emit errorOccured(errorReason);
 
 end:
     emit stateChanged(USimNamespace::LpacState::DONE);
@@ -208,6 +223,8 @@ end:
 
 void LpacWorker::disableEsim(const QString& iccid)
 {
+    QString errorReason;
+
     euicc_init(&m_ctx);
 
     QByteArray iccidBytes = iccid.toUtf8();
@@ -234,8 +251,10 @@ void LpacWorker::disableEsim(const QString& iccid)
     ret = es10c_disable_profile(&m_ctx, iccidBytes.constData(), 1);
     if (ret != 0) {
         qWarning() << "Failed to disable eSIM with ICCID:" << iccid << "Error code:" << ret;
-        goto end;
+        errorReason = "Failed to disable eSIM, error code: " + QString::number(ret);
+        goto err;
     }
+
     qDebug() << "Disabled eSIM with ICCID:" << iccid;
 
     m_esims[iccid].enabled = false;
@@ -249,6 +268,10 @@ void LpacWorker::disableEsim(const QString& iccid)
     euicc_init(&m_ctx);
 
     processNotifications();
+    goto end;
+
+err:
+    emit errorOccured(errorReason);
 
 end:
     emit stateChanged(USimNamespace::LpacState::DONE);
@@ -331,6 +354,22 @@ void LpacWorker::getInstalledEsims()
     processNotifications();
 }
 
+void LpacWorker::restartOfono()
+{
+    // There are certainly better ways to do this, but pam wants setuid and polkit is too complex for a weekend project
+    QProcess process;
+    QStringList arguments;
+    arguments << "restart" << "ofono";
+
+    emit stateChanged(USimNamespace::LpacState::STARTING);
+    emit stateChanged(USimNamespace::LpacState::RESTARTING_OFONO);
+
+    process.start("/usr/bin/systemctl", arguments);
+    process.waitForFinished();
+
+    emit stateChanged(USimNamespace::LpacState::DONE);
+}
+
 void LpacWorker::installProfile(const QString& smdp, const QString& activationCode, const QString& confirmationCode)
 {
     qDebug() << "Installing profile with SMDP:" << smdp
@@ -345,6 +384,7 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
     const QByteArray imei = "123456789012345";
     es10a_euicc_configured_addresses smdp_addresses = {0};
     eSIMInfo info;
+    QString errorReason;
 
     m_ctx.http.server_address = serverAddress.constData();
     qDebug() << "Setting SMDP server address to:" << m_ctx.http.server_address;
@@ -353,43 +393,47 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
     es8p_metadata *metadata = nullptr;
 
     qDebug() << "Getting authentication info";
+
     emit stateChanged(USimNamespace::LpacState::GETTING_CHALLENGE);
 
     ret = es10b_get_euicc_challenge_and_info(&m_ctx);
     if (ret != 0) {
         qWarning() << "Failed to get authentication info." << ret;
-        return;
+        goto err;
     }
 
     qDebug() << "initiating auth";
+
     emit stateChanged(USimNamespace::LpacState::INIT_AUTH);
+
     if (es9p_initiate_authentication(&m_ctx)) {
         qWarning() << "Failed to initiate authentication.";
-        goto err;
+        errorReason = QString::fromUtf8(m_ctx.http.status.message);
+        goto es9_err;
     }
 
     qDebug() << "authenticating server";
+
     emit stateChanged(USimNamespace::LpacState::AUTH_SERVER);
+
     if (es10b_authenticate_server(&m_ctx, activationCode.toUtf8().constData(), imei)) {
         qWarning() << "Failed to authenticate server.";
-        goto err;
+        goto es9_err;
     }
 
     qDebug() << "Authenticating client";
+
     emit stateChanged(USimNamespace::LpacState::AUTH_CLIENT);
+
     if (es9p_authenticate_client(&m_ctx)) {
         qWarning() << "Failed to authenticate client.";
-        processNotifications();
-        goto err;
+        errorReason = QString::fromUtf8(m_ctx.http.status.message);
+        goto es9_err;
     }
 
     if (m_ctx.http._internal.prepare_download_param->b64_profileMetadata) {
         if (es8p_metadata_parse(&metadata,
                 m_ctx.http._internal.prepare_download_param->b64_profileMetadata) == 0) {
-            qDebug() << "Parsed metadata. Profile Name:" << metadata->profileName
-                     << "Service Provider Name:" << metadata->serviceProviderName
-                     << "ICCID:" << metadata->iccid;
-
             emit askForUserConfirmation(QString::fromUtf8(metadata->profileName),
                                     QString::fromUtf8(metadata->serviceProviderName),
                                     QString::fromUtf8(metadata->iccid));
@@ -403,32 +447,33 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
 
             if (!m_userConfirmed) {
                 qWarning() << "User rejected profile installation.";
-                goto err;
+                goto es8_err;
             }
         }
     }
 
     if (m_esims.contains(QString::fromUtf8(metadata->iccid))) {
         qWarning() << "Profile with ICCID:" << QString::fromUtf8(metadata->iccid) << "already exists.";
-        goto err;
+        goto es8_err;
     }
 
     emit stateChanged(USimNamespace::LpacState::PREPARE_DOWNLOAD);
     if (es10b_prepare_download(&m_ctx, confirmationCode.length() > 0 ? confirmationCode.toUtf8().constData() : nullptr) != 0) {
         qWarning() << "Failed to prepare download.";
-        goto err;
+        goto es8_err;
     }
 
     emit stateChanged(USimNamespace::LpacState::GET_BOUND_PACKAGE);
     if (es9p_get_bound_profile_package(&m_ctx) != 0) {
         qWarning() << "Failed to get bound profile package.";
-        goto err;
+        errorReason = QString::fromUtf8(m_ctx.http.status.message);
+        goto es8_err;
     }
 
     emit stateChanged(USimNamespace::LpacState::DOWNLOAD_PACKAGE);
     if (es10b_load_bound_profile_package(&m_ctx, &result) != 0) {
         qWarning() << "Failed to load bound profile package.";
-        goto err;
+        goto es8_err;
     }
 
     qDebug() << "Successfully installed profile. ICCID:" << result.iccid
@@ -456,12 +501,17 @@ void LpacWorker::installProfile(const QString& smdp, const QString& activationCo
     return;
 
     // TODO: Clean up the error routine
+es8_err:
+    es8p_metadata_free(&metadata);
+
+es9_err:
+    es9p_cancel_session(&m_ctx);
+
 err:
     es10b_cancel_session(&m_ctx, ES10B_CANCEL_SESSION_REASON_ENDUSERREJECTION);
-    es9p_cancel_session(&m_ctx);
     euicc_http_cleanup(&m_ctx);
-    es8p_metadata_free(&metadata);
     euicc_fini(&m_ctx);
+    emit errorOccured(errorReason);
     emit stateChanged(USimNamespace::LpacState::DONE);
     qWarning() << "Profile installation failed. Session canceled.";
 }

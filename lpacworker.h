@@ -46,6 +46,7 @@ public:
 signals:
     void esimsChanged(QList<eSIMInfo> esims);
     void stateChanged(USimNamespace::LpacState state);
+    void errorOccured(QString reason);
     void askForUserConfirmation(QString simName, QString providerName, QString iccid);
 
 public slots:
@@ -56,6 +57,7 @@ public slots:
     void renameEsim(const QString& iccid, const QString& nickname);
     void destroyEuicc();
     void getInstalledEsims();
+    void restartOfono();
 
 private:
     void installProfile(const QString& smdp, const QString& activationCode, const QString& confirmationCode);

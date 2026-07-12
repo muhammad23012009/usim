@@ -22,6 +22,11 @@ Page {
                 iconName: "delete"
                 text: "Destroy eUICC"
                 onTriggered: PopupUtils.open(superScaryDialog)
+            },
+            Action {
+                iconName: "system-restart"
+                text: "Restart ofono"
+                onTriggered: PopupUtils.open(restartDialog)
             }
         ]
     }
@@ -35,8 +40,13 @@ Page {
             }
         }
 
-        onShowManualSimDialog: () => {
+        onShowManualSimDialog: {
             PopupUtils.open(addSimDialog)
+        }
+
+        onErrorOccured: {
+            print("Error occured: " + USim.errorTitle + " - " + USim.errorMessage)
+            PopupUtils.open(errorDialog)
         }
     }
 
@@ -63,7 +73,42 @@ Page {
 
         Dialog {
             id: meowDialog
-            title: "Busy"
+            title: {
+                var state = USim.state;
+                switch (state) {
+                    case USimEnums.STARTING:
+                        return "Starting"
+                    case USimEnums.RESTARTING_OFONO:
+                        return "Restarting ofono"
+                    case USimEnums.GETTING_CHALLENGE:
+                        return "Getting challenge"
+                    case USimEnums.INIT_AUTH:
+                        return "Starting authentication"
+                    case USimEnums.AUTH_SERVER:
+                        return "Authenticating with server"
+                    case USimEnums.AUTH_CLIENT:
+                        return "Authenticating with client"
+                    case USimEnums.METADATA_PARSING:
+                        return "Confirm eSIM install"
+                    case USimEnums.PREPARE_DOWNLOAD:
+                        return "Preparing download"
+                    case USimEnums.GET_BOUND_PACKAGE:
+                        return "Downloading eSIM"
+                    case USimEnums.DOWNLOAD_PACKAGE:
+                        return "Installing eSIM"
+                    case USimEnums.PROCESS_AND_FINISH:
+                        return "Processing transaction"
+                    case USimEnums.ENABLING:
+                        return "Enabling eSIM"
+                    case USimEnums.DISABLING:
+                        return "Disabling eSIM"
+                    case USimEnums.REMOVING:
+                        return "Removing eSIM"
+                    default:
+                        return "Busy"
+                }
+            }
+
             anchorToKeyboard: false
 
             Connections {
@@ -73,43 +118,6 @@ Page {
                     if (!busy) {
                         PopupUtils.close(meowDialog)
                     }
-                }
-
-                onStateChanged: {
-                    var text = ""
-                    print("State changed", USim.state, USimEnums.STARTING)
-
-                    if (USim.state == USimEnums.STARTING) {
-                        text = "Starting"
-                    } else if (USim.state == USimEnums.GETTING_CHALLENGE) {
-                        text = "Getting challenge"
-                    } else if (USim.state == USimEnums.INIT_AUTH) {
-                        text = "Starting authentication"
-                    } else if (USim.state == USimEnums.AUTH_SERVER) {
-                        text = "Authenticating with server"
-                    } else if (USim.state == USimEnums.AUTH_CLIENT) {
-                        text = "Authenticating with client"
-                    } else if (USim.state == USimEnums.METADATA_PARSING) {
-                        text = "Confirm eSIM install"
-                    } else if (USim.state == USimEnums.PREPARE_DOWNLOAD) {
-                        text = "Preparing download"
-                    } else if (USim.state == USimEnums.GET_BOUND_PACKAGE) {
-                        text = "Downloading eSIM"
-                    } else if (USim.state == USimEnums.DOWNLOAD_PACKAGE) {
-                        text = "Installing eSIM"
-                    } else if (USim.state == USimEnums.PROCESS_AND_FINISH) {
-                        text = "Power-cycling the eUICC"
-                    } else if (USim.state == USimEnums.ENABLING) {
-                        text = "Enabling eSIM"
-                    } else if (USim.state == USimEnums.DISABLING) {
-                        text = "Disabling eSIM"
-                    } else if (USim.state == USimEnums.REMOVING) {
-                        text = "Removing eSIM"
-                    } else {
-                        text = "Busy"
-                    }
-
-                    meowDialog.title = text
                 }
             }
 
@@ -138,6 +146,26 @@ Page {
                     USim.confirmEsimInstall(false)
                 }
                 visible: USim.state === USimEnums.METADATA_PARSING
+            }
+        }
+    }
+
+    Component {
+        id: errorDialog
+
+        Dialog {
+            id: theDialogOfError
+            title: USim.errorTitle
+
+            Label {
+                text: USim.errorMessage
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Button {
+                text: "Cancel"
+                onClicked: PopupUtils.close(theDialogOfError)
             }
         }
     }
@@ -194,6 +222,35 @@ Page {
             Button {
                 text: "No"
                 onClicked: PopupUtils.close(destroyDialog)
+            }
+        }
+    }
+
+    Component {
+        id: restartDialog
+
+        Dialog {
+            id: ofonoDialog
+            title: "Restart ofono?"
+
+            Label {
+                text: "Are you sure you want to restart ofono? This is needed to resume cellular connectivity after interacting with eSIM profiles."
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Button {
+                text: "Yes"
+                color: LomiriColors.green
+                onClicked: {
+                    PopupUtils.close(ofonoDialog)
+                    USim.restartOfono()
+                }
+            }
+
+            Button {
+                text: "No"
+                onClicked: PopupUtils.close(ofonoDialog)
             }
         }
     }

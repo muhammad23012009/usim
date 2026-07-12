@@ -31,6 +31,9 @@ class USim : public QObject {
     Q_PROPERTY(bool busy MEMBER m_busy NOTIFY busyChanged)
     Q_PROPERTY(eSIMInfo installingEsim MEMBER m_installingEsim NOTIFY installingEsimChanged)
 
+    Q_PROPERTY(QString errorTitle MEMBER m_errorTitle)
+    Q_PROPERTY(QString errorMessage MEMBER m_errorMessage)
+
 public:
     explicit USim(QObject *parent = nullptr);
     ~USim() {
@@ -40,6 +43,10 @@ public:
 
 public slots:
     void openManualDialog();
+
+private slots:
+    void handleStateChanged(USimNamespace::LpacState state);
+    void handleErrorOccured(QString reason);
 
 signals:
     void processLpa(const QString& lpaString);
@@ -55,12 +62,16 @@ signals:
     void installingEsimChanged(eSIMInfo installingEsim);
     void confirmEsimInstall(bool confirmed);
     void showManualSimDialog();
+    void restartOfono();
+    void errorOccured();
 
 private:
     QList<eSIMInfo> m_esims;
     USimNamespace::LpacState m_state = USimNamespace::LpacState::IDLE;
     bool m_busy = false;
     eSIMInfo m_installingEsim;
+    QString m_errorTitle;
+    QString m_errorMessage;
 
     QThread* m_lpacThread;
     LpacWorker* m_lpacWorker;

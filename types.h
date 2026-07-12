@@ -23,8 +23,9 @@
 namespace USimNamespace {
     Q_NAMESPACE         // Tells moc to look at this namespace
 
-    enum LpacState {
+    enum class LpacState {
         IDLE,
+        RESTARTING_OFONO,
         ENABLING,
         DISABLING,
         REMOVING,
