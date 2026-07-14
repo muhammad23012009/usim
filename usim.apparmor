@@ -1,10 +1,15 @@
 {
     "policy_groups": [
         "camera",
-        "networking",
-        "location",
-        "webview"
+        "networking"
     ],
     "policy_version": $ENV{APPARMOR_POLICY},
-    "template": "unconfined"
+    "read_path": [
+        "/dev/binder",
+        "/dev/hwbinder"
+    ],
+    "write_path": [
+        "/dev/binder",
+        "/dev/hwbinder"
+    ]
 }
