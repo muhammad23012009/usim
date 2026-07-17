@@ -4,12 +4,5 @@
         "networking"
     ],
     "policy_version": $ENV{APPARMOR_POLICY},
-    "read_path": [
-        "/dev/binder",
-        "/dev/hwbinder"
-    ],
-    "write_path": [
-        "/dev/binder",
-        "/dev/hwbinder"
-    ]
+    "template": "unconfined"
 }
