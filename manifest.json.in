@@ -1,7 +1,7 @@
 {
     "name": "usim.thevancedgamer",
     "description": "Manage your eSIMs on your Ubuntu Touch device",
-    "architecture": "arm64",
+    "architecture": "$ENV{ARCH}",
     "title": "USim",
     "hooks": {
         "usim": {
@@ -11,5 +11,5 @@
     },
     "version": "1.0",
     "maintainer": "Muhammad <thevancedgamer@mentallysanemainliners.org>",
-    "framework": "ubuntu-touch-24.04-2.x"
+    "framework": "$ENV{CLICK_FRAMEWORK}"
 }
